@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Finance</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:      #0F0F14;
+            --bg2:     #17171F;
+            --bg3:     #1E1E28;
+            --border:  #2A2A38;
+            --text:    #F0F0F8;
+            --text2:   #8888AA;
+            --income:  #22C55E;
+            --expense: #EF4444;
+            --xfer:    #6366F1;
+            --accent:  #7C6FF7;
+            --r:       16px;
+            --nav:     70px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: 'Manrope', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Screens ── */
+        .screen {
+            display: none;
+            height: 100vh;
+            overflow-y: auto;
+            padding: 16px 16px calc(var(--nav) + 20px);
+        }
+        .screen.active { display: block; }
+
+        /* ── Bottom nav ── */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: var(--nav);
+            background: var(--bg2);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            padding-bottom: env(safe-area-inset-bottom);
+            z-index: 100;
+        }
+        .nav-btn {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            background: none;
+            border: none;
+            color: var(--text2);
+            cursor: pointer;
+            padding: 8px 0;
+            transition: color .2s;
+        }
+        .nav-btn.active { color: var(--accent); }
+        .nav-icon { font-size: 22px; }
+        .nav-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--r);
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        /* ── Section title ── */
+        .sec { font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
+
+        /* ── HOME ── */
+        .balance-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%);
+            border-radius: var(--r);
+            padding: 24px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .bal-label { color: var(--text2); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+        .bal-amount { font-size: 38px; font-weight: 800; letter-spacing: -1px; }
+        .bal-period { color: var(--text2); font-size: 12px; margin-top: 6px; }
+
+        .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; }
+        .stat-label { color: var(--text2); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+        .stat-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
+        .stat-val.inc { color: var(--income); }
+        .stat-val.exp { color: var(--expense); }
+
+        /* ── Transaction item ── */
+        .tx { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+        .tx:last-child { border-bottom: none; }
+        .tx-ico {
+            width: 40px; height: 40px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; flex-shrink: 0;
+        }
+        .tx-ico.income   { background: rgba(34,197,94,.15); }
+        .tx-ico.expense  { background: rgba(239,68,68,.15); }
+        .tx-ico.transfer { background: rgba(99,102,241,.15); }
+        .tx-info { flex: 1; min-width: 0; }
+        .tx-cat  { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tx-date { font-size: 12px; color: var(--text2); margin-top: 2px; }
+        .tx-sum  { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+        .tx-sum.income   { color: var(--income); }
+        .tx-sum.expense  { color: var(--expense); }
+        .tx-sum.transfer { color: var(--xfer); }
+
+        /* ── ADD ── */
+        .type-toggle { display: flex; background: var(--bg3); border-radius: 12px; padding: 4px; margin-bottom: 20px; }
+        .type-btn {
+            flex: 1; padding: 10px; border: none;
+            background: transparent; color: var(--text2);
+            font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 700;
+            border-radius: 8px; cursor: pointer; transition: all .2s;
+        }
+        .type-btn.active { background: var(--bg2); color: var(--text); }
+        .type-btn.active[data-type="income"]   { color: var(--income); }
+        .type-btn.active[data-type="expense"]  { color: var(--expense); }
+        .type-btn.active[data-type="transfer"] { color: var(--xfer); }
+
+        .amount-wrap { text-align: center; margin-bottom: 20px; }
+        .amount-lbl { font-size: 11px; font-weight: 700; color: var(--text2); letter-spacing: .6px; margin-bottom: 6px; text-transform: uppercase; }
+        .amount-inp {
+            font-family: 'Manrope', sans-serif; font-size: 52px; font-weight: 800;
+            background: transparent; border: none; color: var(--text);
+            text-align: center; width: 100%; outline: none;
+        }
+        .amount-inp::placeholder { color: var(--text2); }
+
+        .cats-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
+        .cat-btn {
+            background: var(--bg3); border: 2px solid transparent;
+            border-radius: 12px; padding: 10px 6px;
+            cursor: pointer; text-align: center; transition: all .15s;
+        }
+        .cat-btn.sel { border-color: var(--accent); background: rgba(124,111,247,.1); }
+        .cat-ico  { font-size: 22px; display: block; }
+        .cat-name { font-size: 10px; color: var(--text2); margin-top: 4px; font-weight: 600; display: block; line-height: 1.3; }
+        .cat-btn.sel .cat-name { color: var(--accent); }
+
+        .f-field  { margin-bottom: 14px; }
+        .f-label  { font-size: 11px; color: var(--text2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: block; }
+        .f-input  {
+            width: 100%; background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 14px; color: var(--text);
+            font-family: 'Manrope', sans-serif; font-size: 15px; outline: none;
+        }
+        .f-input:focus { border-color: var(--accent); }
+
+        .save-btn {
+            width: 100%; padding: 16px; background: var(--accent);
+            border: none; border-radius: 14px; color: white;
+            font-family: 'Manrope', sans-serif; font-size: 16px; font-weight: 700;
+            cursor: pointer; margin-top: 8px; transition: opacity .2s;
+        }
+        .save-btn:active   { opacity: .8; }
+        .save-btn:disabled { opacity: .5; }
+
+        /* ── REPORTS ── */
+        .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; scrollbar-width: none; }
+        .chips::-webkit-scrollbar { display: none; }
+        .chip {
+            padding: 8px 14px; background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 20px; color: var(--text2); font-size: 13px; font-weight: 700;
+            white-space: nowrap; cursor: pointer; flex-shrink: 0; transition: all .15s;
+        }
+        .chip.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+        .chart-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
+
+        .cat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+        .cat-row:last-child { border-bottom: none; }
+        .cat-row-info { flex: 1; }
+        .cat-row-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+        .bar-bg { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 2px; transition: width .5s ease; }
+        .cat-row-sum { font-size: 14px; font-weight: 700; flex-shrink: 0; }
+
+        /* ── HISTORY ── */
+        .filter-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .f-select {
+            flex: 1; background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 10px; padding: 10px 12px; color: var(--text);
+            font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 600; outline: none;
+        }
+
+        /* ── Shared ── */
+        .loading { text-align: center; color: var(--text2); padding: 36px; font-size: 14px; }
+        .empty { text-align: center; color: var(--text2); padding: 36px 20px; }
+        .empty-ico { font-size: 44px; margin-bottom: 10px; }
+        .empty-txt { font-size: 14px; }
+
+        .toast {
+            position: fixed; top: 20px; left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 12px; padding: 12px 20px;
+            font-size: 14px; font-weight: 700; z-index: 999; white-space: nowrap;
+            transition: transform .3s ease;
+        }
+        .toast.show   { transform: translateX(-50%) translateY(0); }
+        .toast.ok     { border-color: var(--income); color: var(--income); }
+        .toast.err    { border-color: var(--expense); color: var(--expense); }
+
+        .screen-title { font-size: 22px; font-weight: 800; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+
+<div id="toast" class="toast"></div>
+
+<!-- ════════════════ HOME ════════════════ -->
+<div class="screen active" id="screen-home">
+    <div class="screen-title">💰 Финансы</div>
+
+    <div class="balance-card">
+        <div class="bal-label">БАЛАНС ЗА МЕСЯЦ</div>
+        <div class="bal-amount" id="home-balance">…</div>
+        <div class="bal-period" id="home-period"></div>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-label">Доходы</div>
+            <div class="stat-val inc" id="home-income">…</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Расходы</div>
+            <div class="stat-val exp" id="home-expense">…</div>
+        </div>
+    </div>
+
+    <div class="sec">Последние операции</div>
+    <div class="card" id="home-recent"><div class="loading">Загрузка…</div></div>
+</div>
+
+<!-- ════════════════ ADD ════════════════ -->
+<div class="screen" id="screen-add">
+    <div class="screen-title">Добавить</div>
+
+    <div class="type-toggle">
+        <button class="type-btn active" data-type="income">Доход</button>
+        <button class="type-btn"        data-type="expense">Расход</button>
+        <button class="type-btn"        data-type="transfer">Перевод</button>
+    </div>
+
+    <div class="amount-wrap">
+        <div class="amount-lbl">Сумма</div>
+        <input type="number" id="add-amount" class="amount-inp" placeholder="0" inputmode="decimal">
+    </div>
+
+    <div class="sec">Категория</div>
+    <div class="cats-grid" id="add-cats"></div>
+
+    <div class="f-field">
+        <label class="f-label">Дата</label>
+        <input type="date" id="add-date" class="f-input">
+    </div>
+    <div class="f-field">
+        <label class="f-label">Описание (необязательно)</label>
+        <input type="text" id="add-desc" class="f-input" placeholder="Комментарий…">
+    </div>
+
+    <button class="save-btn" id="add-save">Сохранить</button>
+</div>
+
+<!-- ════════════════ REPORTS ════════════════ -->
+<div class="screen" id="screen-reports">
+    <div class="screen-title">Отчёты</div>
+
+    <div class="chips" id="report-chips">
+        <div class="chip active" data-period="month">Месяц</div>
+        <div class="chip" data-period="today">Сегодня</div>
+        <div class="chip" data-period="week">Неделя</div>
+        <div class="chip" data-period="prev_month">Прошлый месяц</div>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-label">Доходы</div>
+            <div class="stat-val inc" id="rep-income">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Расходы</div>
+            <div class="stat-val exp" id="rep-expense">—</div>
+        </div>
+    </div>
+
+    <div class="chart-box"><canvas id="rep-chart" height="200"></canvas></div>
+
+    <div class="sec">Расходы по категориям</div>
+    <div class="card" id="rep-cats"><div class="loading">Загрузка…</div></div>
+</div>
+
+<!-- ════════════════ HISTORY ════════════════ -->
+<div class="screen" id="screen-history">
+    <div class="screen-title">История</div>
+
+    <div class="filter-row">
+        <select class="f-select" id="hist-type">
+            <option value="">Все операции</option>
+            <option value="income">Доходы</option>
+            <option value="expense">Расходы</option>
+            <option value="transfer">Переводы</option>
+        </select>
+        <select class="f-select" id="hist-period">
+            <option value="month">Этот месяц</option>
+            <option value="week">Неделя</option>
+            <option value="today">Сегодня</option>
+            <option value="prev_month">Прошлый месяц</option>
+            <option value="all">Всё время</option>
+        </select>
+    </div>
+
+    <div class="card" id="hist-list"><div class="loading">Загрузка…</div></div>
+</div>
+
+<!-- ════════════════ IMPORT ════════════════ -->
+<div class="screen" id="screen-import">
+    <div class="screen-title">Импорт выписки</div>
+
+    <div class="card" style="text-align:center;padding:28px 20px">
+        <div style="font-size:48px;margin-bottom:12px">📄</div>
+        <div style="font-weight:700;margin-bottom:6px">Выписка ТБанка</div>
+        <div style="color:var(--text2);font-size:13px;margin-bottom:20px">Загрузи PDF — категории расставятся автоматически</div>
+        <label style="display:inline-block">
+            <input type="file" id="imp-file" accept=".pdf" style="display:none">
+            <span class="save-btn" style="display:inline-block;width:auto;padding:12px 28px;cursor:pointer">Выбрать PDF</span>
+        </label>
+    </div>
+
+    <div id="imp-status" style="display:none" class="card">
+        <div id="imp-status-text" style="color:var(--text2);font-size:14px;text-align:center;padding:12px"></div>
+    </div>
+
+    <div id="imp-preview" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="sec" style="margin:0">Найдено: <span id="imp-count">0</span></div>
+            <button class="save-btn" style="width:auto;padding:10px 20px;font-size:14px" onclick="importSaveAll()">Сохранить все</button>
+        </div>
+        <div id="imp-list"></div>
+    </div>
+</div>
+
+<!-- ════════════════ NAV ════════════════ -->
+<nav class="bottom-nav">
+    <button class="nav-btn active" data-screen="home">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label">Главная</span>
+    </button>
+    <button class="nav-btn" data-screen="add">
+        <span class="nav-icon">➕</span>
+        <span class="nav-label">Добавить</span>
+    </button>
+    <button class="nav-btn" data-screen="reports">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Отчёты</span>
+    </button>
+    <button class="nav-btn" data-screen="history">
+        <span class="nav-icon">📋</span>
+        <span class="nav-label">История</span>
+    </button>
+    <button class="nav-btn" data-screen="import">
+        <span class="nav-icon">📥</span>
+        <span class="nav-label">Импорт</span>
+    </button>
+</nav>
+
+<script>
+// ════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════
+const SUPABASE_URL = 'https://tkvzbmqdlbutlgglluvs.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_YJmzcAGoGiYbkHOrdYXqXg_WImJePQg';
+
+// ════════════════════════════════════════
+// CATEGORIES (хардкод = без лишнего запроса в БД)
+// ════════════════════════════════════════
+const CATS = [
+    { id:1,  name:'Зарплата пожарка',  type:'income',   icon:'🚒' },
+    { id:2,  name:'Зарплата магазин',  type:'income',   icon:'🏪' },
+    { id:3,  name:'Пенсия',            type:'income',   icon:'👴' },
+    { id:4,  name:'Бонусы банка',      type:'income',   icon:'🏦' },
+    { id:5,  name:'Подарки',           type:'income',   icon:'🎁' },
+    { id:6,  name:'Зарядка акб',       type:'income',   icon:'🔋' },
+    { id:7,  name:'Продажа лома акб',  type:'income',   icon:'♻️' },
+    { id:8,  name:'Ремонт электрики',  type:'income',   icon:'⚡' },
+    { id:9,  name:'Ремонт акб',        type:'income',   icon:'🔧' },
+    { id:10, name:'Продажа запчастей', type:'income',   icon:'🔩' },
+    { id:11, name:'Такси',             type:'income',   icon:'🚕' },
+    { id:12, name:'Пополнение нал.',   type:'income',   icon:'💵' },
+    { id:13, name:'Продукты',          type:'expense',  icon:'🛒' },
+    { id:14, name:'Топливо',           type:'expense',  icon:'⛽' },
+    { id:15, name:'Авто — запчасти',   type:'expense',  icon:'🚗' },
+    { id:16, name:'Авто — сервис',     type:'expense',  icon:'🔨' },
+    { id:17, name:'Транспорт',         type:'expense',  icon:'🚌' },
+    { id:18, name:'Семья',             type:'expense',  icon:'👨‍👩‍👧' },
+    { id:19, name:'Связь',             type:'expense',  icon:'📱' },
+    { id:20, name:'Подписки',          type:'expense',  icon:'📺' },
+    { id:21, name:'Спорт',             type:'expense',  icon:'💪' },
+    { id:22, name:'Развлечения',       type:'expense',  icon:'🎮' },
+    { id:23, name:'Питомец',           type:'expense',  icon:'🐾' },
+    { id:24, name:'Кафе',              type:'expense',  icon:'☕' },
+    { id:25, name:'Аптека',            type:'expense',  icon:'💊' },
+    { id:26, name:'Одежда',            type:'expense',  icon:'👕' },
+    { id:27, name:'Закупка запчастей', type:'expense',  icon:'⚙️' },
+    { id:28, name:'Материалы',         type:'expense',  icon:'🏗️' },
+    { id:29, name:'Кредит',            type:'expense',  icon:'💳' },
+    { id:30, name:'Прочее',            type:'expense',  icon:'📦' },
+    { id:31, name:'Между счетами',     type:'transfer', icon:'↔️' },
+    { id:32, name:'Перевод жене',      type:'transfer', icon:'💝' },
+];
+
+// ════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════
+const fmt = n => new Intl.NumberFormat('uk-UA').format(Math.round(n)) + ' ₴';
+
+const getCat = id => CATS.find(c => c.id === id) || { name:'Без категории', icon:'❓', type:'expense' };
+
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+function fmtDate(s) {
+    const d = new Date(s + 'T00:00:00');
+    return d.toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
+}
+
+function getPeriod(period) {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth();
+    const pad = n => String(n).padStart(2,'0');
+    const iso = d => d.toISOString().split('T')[0];
+
+    if (period === 'today') {
+        const t = todayStr();
+        return { from: t, to: t };
+    }
+    if (period === 'week') {
+        const day = now.getDay() || 7;
+        const mon = new Date(now);
+        mon.setDate(now.getDate() - day + 1);
+        return { from: iso(mon), to: iso(now) };
+    }
+    if (period === 'month') {
+        return {
+            from: `${y}-${pad(m+1)}-01`,
+            to: iso(new Date(y, m+1, 0))
+        };
+    }
+    if (period === 'prev_month') {
+        const pm = m === 0 ? 11 : m-1;
+        const py = m === 0 ? y-1 : y;
+        return {
+            from: `${py}-${pad(pm+1)}-01`,
+            to: iso(new Date(py, pm+1, 0))
+        };
+    }
+    // all
+    return { from: '2020-01-01', to: '2099-12-31' };
+}
+
+function toast(msg, type = 'ok') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast ' + type;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ════════════════════════════════════════
+// SUPABASE — helpers
+// ════════════════════════════════════════
+// Почему отдельные dbGet / dbInsert?
+// Чтобы вся логика работы с API была в одном месте.
+// Любой экран просто вызывает dbGet('transactions', {...}) — не думает про fetch/headers.
+
+async function dbGet(table, { select = '*', filters = [], order = null, limit = null } = {}) {
+    let url = `${SUPABASE_URL}/rest/v1/${table}?select=${select}`;
+    filters.forEach(f => url += '&' + f);
+    if (order)  url += '&order=' + order;
+    if (limit)  url += '&limit=' + limit;
+
+    const res = await fetch(url, {
+        headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_KEY
+        }
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+async function dbInsert(table, data) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error(await res.text());
+}
+
+// ════════════════════════════════════════
+// ROUTER
+// ════════════════════════════════════════
+function navigate(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.add('active');
+    document.querySelector(`.nav-btn[data-screen="${name}"]`).classList.add('active');
+
+    // каждый экран загружает свои данные при переходе
+    if (name === 'home')    loadHome();
+    if (name === 'reports') loadReports();
+    if (name === 'history') loadHistory();
+}
+
+document.querySelectorAll('.nav-btn').forEach(b => {
+    b.addEventListener('click', () => navigate(b.dataset.screen));
+});
+
+// ════════════════════════════════════════
+// HOME
+// ════════════════════════════════════════
+async function loadHome() {
+    const now = new Date();
+    const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    document.getElementById('home-period').textContent = months[now.getMonth()] + ' ' + now.getFullYear();
+
+    try {
+        const { from, to } = getPeriod('month');
+        const txs = await dbGet('transactions', {
+            filters: [`date=gte.${from}`, `date=lte.${to}`],
+            order: 'date.desc'
+        });
+
+        let inc = 0, exp = 0;
+        txs.forEach(tx => {
+            if (tx.type === 'income')  inc += Number(tx.amount);
+            if (tx.type === 'expense') exp += Number(tx.amount);
+        });
+
+        document.getElementById('home-balance').textContent = fmt(inc - exp);
+        document.getElementById('home-income').textContent  = fmt(inc);
+        document.getElementById('home-expense').textContent = fmt(exp);
+
+        const recent = txs.slice(0, 5);
+        const el = document.getElementById('home-recent');
+        if (!recent.length) {
+            el.innerHTML = '<div class="empty"><div class="empty-ico">📭</div><div class="empty-txt">Операций пока нет</div></div>';
+            return;
+        }
+        el.innerHTML = recent.map(tx => txHTML(tx)).join('');
+
+    } catch(e) {
+        console.error(e);
+        document.getElementById('home-recent').innerHTML = '<div class="loading">Ошибка загрузки</div>';
+    }
+}
+
+// ════════════════════════════════════════
+// ADD
+// ════════════════════════════════════════
+let addType  = 'income';
+let addCatId = null;
+
+function renderCatGrid() {
+    const grid = document.getElementById('add-cats');
+    addCatId = null;
+    grid.innerHTML = CATS.filter(c => c.type === addType).map(c => `
+        <button class="cat-btn" data-id="${c.id}">
+            <span class="cat-ico">${c.icon}</span>
+            <span class="cat-name">${c.name}</span>
+        </button>
+    `).join('');
+    grid.querySelectorAll('.cat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            grid.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('sel'));
+            btn.classList.add('sel');
+            addCatId = Number(btn.dataset.id);
+        });
+    });
+}
+
+document.querySelectorAll('.type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        addType = btn.dataset.type;
+        renderCatGrid();
+    });
+});
+
+document.getElementById('add-date').value = todayStr();
+
+document.getElementById('add-save').addEventListener('click', async () => {
+    const amount = parseFloat(document.getElementById('add-amount').value);
+    const date   = document.getElementById('add-date').value;
+    const desc   = document.getElementById('add-desc').value.trim();
+
+    if (!amount || amount <= 0) { toast('Введи сумму', 'err'); return; }
+    if (!addCatId)              { toast('Выбери категорию', 'err'); return; }
+
+    const btn = document.getElementById('add-save');
+    btn.disabled = true;
+    btn.textContent = 'Сохранение…';
+
+    try {
+        await dbInsert('transactions', {
+            date,
+            amount,
+            type:        addType,
+            category_id: addCatId,
+            description: desc || null,
+            source:      'miniapp'
+        });
+        toast('✅ Сохранено!');
+        document.getElementById('add-amount').value = '';
+        document.getElementById('add-desc').value   = '';
+        document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('sel'));
+        addCatId = null;
+    } catch(e) {
+        toast('Ошибка: ' + e.message, 'err');
+        console.error(e);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Сохранить';
+    }
+});
+
+renderCatGrid();
+
+// ════════════════════════════════════════
+// REPORTS
+// ════════════════════════════════════════
+let repPeriod = 'month';
+let repChart  = null;
+
+document.querySelectorAll('#report-chips .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        document.querySelectorAll('#report-chips .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        repPeriod = chip.dataset.period;
+        loadReports();
+    });
+});
+
+async function loadReports() {
+    const { from, to } = getPeriod(repPeriod);
+    try {
+        const txs = await dbGet('transactions', {
+            filters: [`date=gte.${from}`, `date=lte.${to}`],
+            order: 'date.asc'
+        });
+
+        // Totals
+        let inc = 0, exp = 0;
+        txs.forEach(tx => {
+            if (tx.type === 'income')  inc += Number(tx.amount);
+            if (tx.type === 'expense') exp += Number(tx.amount);
+        });
+        document.getElementById('rep-income').textContent  = fmt(inc);
+        document.getElementById('rep-expense').textContent = fmt(exp);
+
+        // Bar chart — группируем по дате
+        const dayMap = {};
+        txs.forEach(tx => {
+            if (!dayMap[tx.date]) dayMap[tx.date] = { inc: 0, exp: 0 };
+            if (tx.type === 'income')  dayMap[tx.date].inc += Number(tx.amount);
+            if (tx.type === 'expense') dayMap[tx.date].exp += Number(tx.amount);
+        });
+        const days = Object.keys(dayMap).sort();
+
+        if (repChart) repChart.destroy();
+        const ctx = document.getElementById('rep-chart').getContext('2d');
+        repChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: days.map(fmtDate),
+                datasets: [
+                    { label:'Доходы',  data: days.map(d => dayMap[d].inc), backgroundColor:'rgba(34,197,94,.7)',  borderRadius:4 },
+                    { label:'Расходы', data: days.map(d => dayMap[d].exp), backgroundColor:'rgba(239,68,68,.7)',  borderRadius:4 }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { labels: { color:'#8888AA', font:{ size:11, family:'Manrope' } } },
+                    tooltip: { callbacks: { label: c => ' ' + fmt(c.raw) } }
+                },
+                scales: {
+                    x: { ticks:{ color:'#8888AA', font:{ size:10 } }, grid:{ color:'rgba(255,255,255,.05)' } },
+                    y: { ticks:{ color:'#8888AA', font:{ size:10 }, callback: v => fmt(v) }, grid:{ color:'rgba(255,255,255,.05)' } }
+                }
+            }
+        });
+
+        // Топ расходов по категориям
+        const catMap = {};
+        txs.filter(tx => tx.type === 'expense').forEach(tx => {
+            catMap[tx.category_id] = (catMap[tx.category_id] || 0) + Number(tx.amount);
+        });
+        const catArr = Object.entries(catMap)
+            .map(([id, sum]) => ({ cat: getCat(Number(id)), sum }))
+            .sort((a, b) => b.sum - a.sum);
+
+        const maxSum = catArr[0]?.sum || 1;
+        const el = document.getElementById('rep-cats');
+        if (!catArr.length) {
+            el.innerHTML = '<div class="empty"><div class="empty-ico">📊</div><div class="empty-txt">Расходов нет</div></div>';
+        } else {
+            el.innerHTML = catArr.map(({ cat, sum }) => `
+                <div class="cat-row">
+                    <span style="font-size:24px">${cat.icon}</span>
+                    <div class="cat-row-info">
+                        <div class="cat-row-name">${cat.name}</div>
+                        <div class="bar-bg">
+                            <div class="bar-fill" style="width:${(sum/maxSum*100).toFixed(1)}%;background:var(--expense)"></div>
+                        </div>
+                    </div>
+                    <div class="cat-row-sum" style="color:var(--expense)">−${fmt(sum)}</div>
+                </div>
+            `).join('');
+        }
+
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+// ════════════════════════════════════════
+// HISTORY
+// ════════════════════════════════════════
+document.getElementById('hist-type').addEventListener('change', loadHistory);
+document.getElementById('hist-period').addEventListener('change', loadHistory);
+
+async function loadHistory() {
+    const type   = document.getElementById('hist-type').value;
+    const period = document.getElementById('hist-period').value;
+    const { from, to } = getPeriod(period);
+
+    const filters = [`date=gte.${from}`, `date=lte.${to}`];
+    if (type) filters.push(`type=eq.${type}`);
+
+    try {
+        const txs = await dbGet('transactions', { filters, order:'date.desc', limit:200 });
+        const el = document.getElementById('hist-list');
+        if (!txs.length) {
+            el.innerHTML = '<div class="empty"><div class="empty-ico">📭</div><div class="empty-txt">Операций нет</div></div>';
+            return;
+        }
+        el.innerHTML = txs.map(tx => txHTML(tx)).join('');
+    } catch(e) {
+        console.error(e);
+        document.getElementById('hist-list').innerHTML = '<div class="loading">Ошибка загрузки</div>';
+    }
+}
+
+// ════════════════════════════════════════
+// SHARED — HTML для строки транзакции
+// ════════════════════════════════════════
+function txHTML(tx) {
+    const cat  = getCat(tx.category_id);
+    const sign = tx.type === 'expense' ? '−' : '+';
+    const desc = tx.description ? ' · ' + tx.description : '';
+    return `
+        <div class="tx">
+            <div class="tx-ico ${tx.type}">${cat.icon}</div>
+            <div class="tx-info">
+                <div class="tx-cat">${cat.name}</div>
+                <div class="tx-date">${fmtDate(tx.date)}${desc}</div>
+            </div>
+            <div class="tx-sum ${tx.type}">${sign}${fmt(tx.amount)}</div>
+        </div>
+    `;
+}
+
+// ════════════════════════════════════════
+// IMPORT
+// ════════════════════════════════════════
+let impTxs = []; // распознанные транзакции
+
+document.getElementById('imp-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    impStatus('Читаю PDF…');
+    try {
+        // инициализируем worker здесь — чтобы не падать при старте страницы
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+                'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        } else {
+            throw new Error('PDF.js не загрузился. Проверь интернет-соединение.');
+        }
+        const text = await extractPdfText(file);
+        impStatus('Разбираю транзакции…');
+        const txs = parseTbankStatement(text);
+        impTxs = txs;
+        if (txs.length === 0) {
+            // Показываем первые 500 символов для отладки
+            impStatus('Найдено 0 транзакций. Текст из PDF: ' + text.slice(0, 300));
+            return;
+        }
+        renderImpPreview(txs);
+    } catch(err) {
+        impStatus('Ошибка: ' + err.message);
+        console.error(err);
+    }
+});
+
+function impStatus(msg) {
+    const el = document.getElementById('imp-status');
+    el.style.display = 'block';
+    document.getElementById('imp-status-text').textContent = msg;
+    document.getElementById('imp-preview').style.display = 'none';
+}
+
+// Извлекаем весь текст из PDF постранично
+async function extractPdfText(file) {
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    return text;
+}
+
+// Парсим текст выписки ТБанка — без внешних API
+function parseTbankStatement(text) {
+    const s = text.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+    const results = [];
+    const re = /(\d{2}\.\d{2}\.\d{4})\s+\d{2}:\d{2}\s+(\d{2}\.\d{2}\.\d{4})\s+\d{2}:\d{2}\s+[-−]([\d\s]+[.,]\d{2})\s*₽\s+[-−]([\d\s]+[.,]\d{2})\s*₽\s+(.+?)\s+(\d{4})(?=\s+\d{2}\.\d{2}|\s*$)/g;
+    let match;
+    while ((match = re.exec(s)) !== null) {
+        const [d, m, y] = match[2].split('.');
+        const date   = `${y}-${m}-${d}`;
+        const amount = parseFloat(match[4].replace(/[\s\u00a0]/g, '').replace(',', '.'));
+        const description = match[5].trim();
+        if (amount > 0 && description) {
+            results.push({ date, amount, description, ...autoCategory(description) });
+        }
+    }
+    return results;
+}
+
+function autoCategory(desc) {
+    const d = desc.toUpperCase();
+    if (/ВНУТРЕННИЙ ПЕРЕВОД|ВНЕШНИЙ ПЕРЕВОД/.test(d))                           return { category_id: 31, type: 'transfer' };
+    if (/КУБЫШК|KUBYSHK/.test(d))                                               return { category_id: 31, type: 'transfer' };
+    if (/ПОГАШЕНИ/.test(d))                                                      return { category_id: 29, type: 'expense' };
+    if (/GAZPROMNEFT|AZS|АЗС|ЛУКОЙЛ|LUKOIL|ROSNEFT|ЗАПРАВ/.test(d))           return { category_id: 14, type: 'expense' };
+    if (/YANDEX.*GO|UBER|ТАКСИ|TAXI/.test(d))                                   return { category_id: 17, type: 'expense' };
+    if (/MAGNIT|МАГНИТ|PYATEROCHKA|ПЯТЕРОЧКА|KRASNOE|КРАСНОЕ|MAGAZIN|МАГАЗИН/.test(d)) return { category_id: 13, type: 'expense' };
+    if (/MOTIV|МОТИВ|МТС|MTS|MEGAFON|МЕГАФОН|BEELINE|TELE2/.test(d))          return { category_id: 19, type: 'expense' };
+    if (/APTEKA|АПТЕКА/.test(d))                                                 return { category_id: 25, type: 'expense' };
+    if (/KEDR|СПОРТ|SPORT|FITNESS/.test(d))                                     return { category_id: 21, type: 'expense' };
+    if (/CAFE|КАФЕ|RESTAURANT|SOLO|BAR/.test(d))                               return { category_id: 24, type: 'expense' };
+    if (/YANDEX|GOOGLE|APPLE|NETFLIX|SPOTIFY/.test(d))                         return { category_id: 20, type: 'expense' };
+    return { category_id: 30, type: 'expense' };
+}
+
+
+
+function renderImpPreview(txs) {
+    document.getElementById('imp-status').style.display = 'none';
+    document.getElementById('imp-preview').style.display = 'block';
+    document.getElementById('imp-count').textContent = txs.length;
+
+    const list = document.getElementById('imp-list');
+    list.innerHTML = txs.map((tx, i) => {
+        const cat = getCat(tx.category_id);
+        const catOptions = CATS
+            .filter(c => c.type === tx.type || (tx.type === 'transfer' && c.type === 'transfer'))
+            .map(c => `<option value="${c.id}" ${c.id === tx.category_id ? 'selected' : ''}>${c.icon} ${c.name}</option>`)
+            .join('');
+        // для расходов показываем все expense категории
+        const allOptions = CATS.map(c =>
+            `<option value="${c.id}" ${c.id === tx.category_id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
+        ).join('');
+
+        return `
+        <div class="card" style="margin-bottom:8px;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div>
+                    <div style="font-weight:700;font-size:14px">${tx.description}</div>
+                    <div style="color:var(--text2);font-size:12px">${tx.date}</div>
+                </div>
+                <div style="font-size:16px;font-weight:800;color:var(--expense)">−${fmt(tx.amount)}</div>
+            </div>
+            <select class="f-select" style="width:100%" onchange="impTxs[${i}].category_id=Number(this.value)">
+                ${allOptions}
+            </select>
+        </div>`;
+    }).join('');
+}
+
+async function importSaveAll() {
+    if (!impTxs.length) return;
+    const btn = document.querySelector('[onclick="importSaveAll()"]');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
+    let ok = 0, fail = 0;
+    for (const tx of impTxs) {
+        try {
+            await dbInsert('transactions', {
+                date: tx.date,
+                amount: tx.amount,
+                type: tx.type,
+                category_id: tx.category_id,
+                description: tx.description,
+                source: 'tbank_import'
+            });
+            ok++;
+        } catch(e) { fail++; }
+    }
+    toast(`✅ Сохранено ${ok} из ${impTxs.length}`, fail ? 'err' : 'ok');
+    btn.disabled = false;
+    btn.textContent = 'Сохранить все';
+}
+
+// ════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+loadHome();
+</script>
+</body>
+</html>
