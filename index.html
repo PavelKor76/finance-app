@@ -186,13 +186,24 @@
 
         .chart-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
 
-        .cat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+        .cat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
         .cat-row:last-child { border-bottom: none; }
         .cat-row-info { flex: 1; }
         .cat-row-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
         .bar-bg { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
         .bar-fill { height: 100%; border-radius: 2px; transition: width .5s ease; }
         .cat-row-sum { font-size: 14px; font-weight: 700; flex-shrink: 0; }
+        .cat-row-arrow { font-size: 12px; color: var(--text2); flex-shrink: 0; transition: transform .2s; }
+        .cat-row-arrow.open { transform: rotate(180deg); }
+
+        /* Детали транзакций внутри категории */
+        .cat-detail { display: none; background: var(--bg3); border-radius: 10px; margin: 4px 0 8px; overflow: hidden; }
+        .cat-detail.open { display: block; }
+        .cat-detail-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+        .cat-detail-item:last-child { border-bottom: none; }
+        .cat-detail-desc { font-size: 12px; color: var(--text); font-weight: 500; }
+        .cat-detail-date { font-size: 11px; color: var(--text2); margin-top: 2px; }
+        .cat-detail-amt  { font-size: 13px; font-weight: 700; flex-shrink: 0; }
 
         /* ── HISTORY ── */
         .filter-row { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -316,9 +327,6 @@
 
     <div class="chart-box"><canvas id="rep-chart" height="200"></canvas></div>
 
-    <div class="sec">Расходы по категориям</div>
-    <div class="card" id="rep-cats"><div class="loading">Загрузка…</div></div>
-
     <!-- График доходов по категориям -->
     <div class="sec" style="margin-top:8px">📈 Доходы по категориям</div>
     <div class="chart-box">
@@ -338,6 +346,14 @@
             Итого: <span id="exp-cat-total" style="color:var(--expense);font-weight:800;font-size:16px">—</span>
         </div>
     </div>
+
+    <!-- Список доходов по категориям -->
+    <div class="sec" style="margin-top:8px">Доходы по категориям</div>
+    <div class="card" id="rep-inc-cats"><div class="loading">Загрузка…</div></div>
+
+    <!-- Список расходов по категориям -->
+    <div class="sec" style="margin-top:8px">Расходы по категориям</div>
+    <div class="card" id="rep-cats"><div class="loading">Загрузка…</div></div>
 </div>
 
 <!-- ════════════════ HISTORY ════════════════ -->
@@ -764,33 +780,9 @@ async function loadReports() {
             }
         });
 
-        // Топ расходов по категориям
-        const catMap = {};
-        txs.filter(tx => tx.type === 'expense').forEach(tx => {
-            catMap[tx.category_id] = (catMap[tx.category_id] || 0) + Number(tx.amount);
-        });
-        const catArr = Object.entries(catMap)
-            .map(([id, sum]) => ({ cat: getCat(Number(id)), sum }))
-            .sort((a, b) => b.sum - a.sum);
-
-        const maxSum = catArr[0]?.sum || 1;
-        const el = document.getElementById('rep-cats');
-        if (!catArr.length) {
-            el.innerHTML = '<div class="empty"><div class="empty-ico">📊</div><div class="empty-txt">Расходов нет</div></div>';
-        } else {
-            el.innerHTML = catArr.map(({ cat, sum }) => `
-                <div class="cat-row">
-                    <span style="font-size:24px">${cat.icon}</span>
-                    <div class="cat-row-info">
-                        <div class="cat-row-name">${cat.name}</div>
-                        <div class="bar-bg">
-                            <div class="bar-fill" style="width:${(sum/maxSum*100).toFixed(1)}%;background:var(--expense)"></div>
-                        </div>
-                    </div>
-                    <div class="cat-row-sum" style="color:var(--expense)">−${fmt(sum)}</div>
-                </div>
-            `).join('');
-        }
+        // Списки по категориям (раскрываемые)
+        renderCatList(txs, 'expense', 'rep-cats');
+        renderCatList(txs, 'income',  'rep-inc-cats');
 
         // Графики по категориям
         buildCatChart(txs, 'income');
@@ -967,6 +959,74 @@ function txHTML(tx) {
 // ════════════════════════════════════════
 // IMPORT
 // ════════════════════════════════════════
+// ════════════════════════════════════════
+// EXPANDABLE CATEGORY LISTS
+// ════════════════════════════════════════
+function renderCatList(txs, type, containerId) {
+    const color  = type === 'income' ? 'var(--income)' : 'var(--expense)';
+    const sign   = type === 'income' ? '+' : '−';
+    const noMsg  = type === 'income' ? 'Доходов нет' : 'Расходов нет';
+
+    // Группируем транзакции по категории
+    const catMap = {};
+    txs.filter(tx => tx.type === type).forEach(tx => {
+        const id = tx.category_id;
+        if (!catMap[id]) catMap[id] = { sum: 0, items: [] };
+        catMap[id].sum += Number(tx.amount);
+        catMap[id].items.push(tx);
+    });
+
+    const entries = Object.entries(catMap)
+        .map(([id, data]) => ({ id: Number(id), cat: getCat(Number(id)), ...data }))
+        .sort((a, b) => b.sum - a.sum);
+
+    const el = document.getElementById(containerId);
+
+    if (!entries.length) {
+        el.innerHTML = `<div class="empty"><div class="empty-ico">📊</div><div class="empty-txt">${noMsg}</div></div>`;
+        return;
+    }
+
+    const maxSum = entries[0].sum;
+
+    el.innerHTML = entries.map((e, i) => {
+        // Сортируем транзакции по дате (новые сверху)
+        const sorted = [...e.items].sort((a, b) => b.date > a.date ? 1 : -1);
+        const detailRows = sorted.map(tx => `
+            <div class="cat-detail-item">
+                <div>
+                    <div class="cat-detail-desc">${tx.description || e.cat.name}</div>
+                    <div class="cat-detail-date">${fmtDate(tx.date)}</div>
+                </div>
+                <div class="cat-detail-amt" style="color:${color}">${sign}${fmt(tx.amount)}</div>
+            </div>
+        `).join('');
+
+        return `
+        <div class="cat-row" onclick="toggleCatDetail(${i}, '${containerId}')">
+            <span style="font-size:24px">${e.cat.icon}</span>
+            <div class="cat-row-info">
+                <div class="cat-row-name">${e.cat.name}</div>
+                <div class="bar-bg">
+                    <div class="bar-fill" style="width:${(e.sum/maxSum*100).toFixed(1)}%;background:${color}"></div>
+                </div>
+            </div>
+            <div class="cat-row-sum" style="color:${color}">${sign}${fmt(e.sum)}</div>
+            <div class="cat-row-arrow" id="arrow-${containerId}-${i}">▼</div>
+        </div>
+        <div class="cat-detail" id="detail-${containerId}-${i}">${detailRows}</div>
+        `;
+    }).join('');
+}
+
+function toggleCatDetail(i, containerId) {
+    const detail = document.getElementById(`detail-${containerId}-${i}`);
+    const arrow  = document.getElementById(`arrow-${containerId}-${i}`);
+    const isOpen = detail.classList.contains('open');
+    detail.classList.toggle('open', !isOpen);
+    arrow.classList.toggle('open',  !isOpen);
+}
+
 // ════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════
